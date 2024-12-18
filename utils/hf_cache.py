@@ -83,37 +83,6 @@ def find_hf_datasets_dir() -> str | None:
         logger.warning(f"Invalid default HuggingFace datasets directory: {result}")
     return None
 
-
-def find_transformers_dir() -> str | None:
-    """
-    Find the huggingface transformers cache directory.
-    """
-    import os
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    result = None
-    if "TRANSFORMERS_CACHE" in os.environ:
-        result = os.environ["TRANSFORMERS_CACHE"]
-        if os.path.exists(result) and os.path.isdir(result):
-            return result
-        else:
-            logger.warning(f"Invalid TRANSFORMERS_CACHE directory: {result}")
-    if "HF_HOME" in os.environ:
-        result = os.path.join(os.environ["HF_HOME"], "transformers")
-        if os.path.exists(result) and os.path.isdir(result):
-            return result
-        else:
-            logger.warning(f"Invalid HF_HOME directory: {result}")
-    result = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "transformers")
-    if os.path.exists(result) and os.path.isdir(result):
-        return result
-    else:
-        logger.warning(f"Invalid default HuggingFace transformers directory: {result}")
-    return None
-
-
 def find_xdg_cache_home() -> str | None:
     """
     Find the XDG cache directory.
@@ -141,4 +110,5 @@ def find_xdg_cache_home() -> str | None:
 # HUGGINGFACE_HUB_CACHE   ~/.cache/huggingface/hub
 # HF_DATASETS_CACHE       ~/.cache/huggingface/datasets
 # TRANSFORMERS_CACHE      ~/.cache/huggingface/transformers
+# TRANSFORMERS_CACHE is deprecated, use `HF_HOME` instead.
 # XDG_CACHE_HOME          ~/.cache

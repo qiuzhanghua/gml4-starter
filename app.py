@@ -43,7 +43,7 @@ def main(model):
     if model == "glm-4v":
         model = "THUDM/glm-4v-9b"
     elif model == "glm-4":
-        model = "THUDM/glm-4-9b"
+        model = "THUDM/glm-4-9b-chat"
 
     model_path = "models--" + model.replace("/", "--")
 
