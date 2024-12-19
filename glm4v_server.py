@@ -372,6 +372,7 @@ gc.collect()
 torch.cuda.empty_cache()
 
 if __name__ == "__main__":
+    port = sys.argv[2] if len(sys.argv) > 2 else 8000
     MODEL_PATH = sys.argv[1]
     model_dir = Path(MODEL_PATH).expanduser().resolve()
     if (model_dir / 'adapter_config.json').exists():
@@ -409,4 +410,4 @@ if __name__ == "__main__":
         ).eval()
         
 
-    uvicorn.run(app, host='0.0.0.0', port=8000, workers=1)
+    uvicorn.run(app, host='0.0.0.0', port=int(port), workers=1)

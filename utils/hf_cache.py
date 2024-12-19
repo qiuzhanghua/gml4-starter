@@ -112,3 +112,101 @@ def find_xdg_cache_home() -> str | None:
 # TRANSFORMERS_CACHE      ~/.cache/huggingface/transformers
 # TRANSFORMERS_CACHE is deprecated, use `HF_HOME` instead.
 # XDG_CACHE_HOME          ~/.cache
+
+def find_model_dir(model: str) -> str | None:
+    """
+    Find the model directory.
+    """
+    import os
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    base_dir = find_hf_hub_dir()
+    if base_dir is None:
+        hf_home = find_hf_home_dir()
+        if hf_home is None:
+            xdg_cache_home = find_xdg_cache_home()
+            if xdg_cache_home is None:
+                logger.error("Could not find a suitable cache directory.")
+                return None
+            else:
+                base_dir = os.path.join(xdg_cache_home, "huggingface", "hub")
+        else:
+            base_dir = os.path.join(hf_home, "hub")
+
+    if base_dir is None:
+        logger.error("Could not find a suitable cache directory.")
+        return None
+
+    model_path = "models--" + model.replace("/", "--")
+
+    model_dir = os.path.join(base_dir, model_path)
+
+    if not os.path.exists(model_dir):
+        logger.error(f"Model directory not found: {model_dir}")
+        return None
+
+    model_dir = os.path.join(base_dir, model_path)
+
+    if not os.path.exists(model_dir):
+        logger.error(f"Model directory not found: {model_dir}")
+        return None
+
+    with open(os.path.join(model_dir, "refs", "main"), "r", encoding="utf-8") as f:
+        oid = f.read().replace("\n", "")
+
+    lfs_dir = os.path.join(model_dir, "snapshots", oid)
+    if not os.path.exists(lfs_dir):
+        logger.error(f"Model directory not found: {lfs_dir}")
+        return None
+
+    return lfs_dir
+
+def find_datasets_dir(datasets: str) -> str | None:
+    """
+    Find the dataset directory.
+    """
+    import os
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    base_dir = find_hf_datasets_dir()
+    if base_dir is None:
+        hf_home = find_hf_home_dir()
+        if hf_home is None:
+            xdg_cache_home = find_xdg_cache_home()
+            if xdg_cache_home is None:
+                logger.error("Could not find a suitable cache directory.")
+                return None
+            else:
+                base_dir = os.path.join(xdg_cache_home, "huggingface", "datasets")
+        else:
+            base_dir = os.path.join(hf_home, "datasets")
+
+    if base_dir is None:
+        logger.error("Could not find a suitable cache directory.")
+        return None
+
+    dataset_path = "datasets--" + datasets.replace("/", "--")
+
+    dataset_dir = os.path.join(base_dir, dataset_path)
+
+    if not os.path.exists(dataset_dir):
+        logger.error(f"Dataset directory not found: {dataset_dir}")
+        return None
+
+    if not os.path.exists(dataset_dir):
+        logger.error(f"Datasets directory not found: {dataset_dir}")
+        return None
+
+    with open(os.path.join(dataset_dir, "refs", "main"), "r", encoding="utf-8") as f:
+        oid = f.read().replace("\n", "")
+
+    lfs_dir = os.path.join(dataset_dir, "snapshots", oid)
+    if not os.path.exists(lfs_dir):
+        logger.error(f"Datasets directory not found: {lfs_dir}")
+        return None
+
+    return lfs_dir

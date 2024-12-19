@@ -657,6 +657,7 @@ async def parse_output_text(model_id: str, value: str, function_call: ChoiceDelt
 
 
 if __name__ == "__main__":
+    port = sys.argv[2] if len(sys.argv) > 2 else 8000
     MODEL_PATH = sys.argv[1]
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, trust_remote_code=True)
     engine_args = AsyncEngineArgs(
@@ -675,4 +676,4 @@ if __name__ == "__main__":
         max_model_len=MAX_MODEL_LENGTH,
     )
     engine = AsyncLLMEngine.from_engine_args(engine_args)
-    uvicorn.run(app, host='0.0.0.0', port=8000, workers=1)
+    uvicorn.run(app, host='0.0.0.0', port=int(port), workers=1)
