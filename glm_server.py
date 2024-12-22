@@ -20,7 +20,8 @@ from vllm import SamplingParams, AsyncEngineArgs, AsyncLLMEngine
 
 EventSourceResponse.DEFAULT_PING_INTERVAL = 1000
 
-MAX_MODEL_LENGTH = 8192 
+MAX_MODEL_LENGTH = 8192
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,7 +43,7 @@ app.add_middleware(
 
 
 def generate_id(prefix: str, k=29) -> str:
-    suffix = ''.join(random.choices(string.ascii_letters + string.digits, k=k))
+    suffix = "".join(random.choices(string.ascii_letters + string.digits, k=k))
     return f"{prefix}{suffix}"
 
 
@@ -81,7 +82,7 @@ class ChatCompletionMessageToolCall(BaseModel):
     index: Optional[int] = 0
     id: Optional[str] = None
     function: FunctionCall
-    type: Optional[Literal["function"]] = 'function'
+    type: Optional[Literal["function"]] = "function"
 
 
 class ChatMessage(BaseModel):
@@ -115,11 +116,15 @@ class ChatCompletionResponseStreamChoice(BaseModel):
 
 class ChatCompletionResponse(BaseModel):
     model: str
-    id: Optional[str] = Field(default_factory=lambda: generate_id('chatcmpl-', 29))
+    id: Optional[str] = Field(default_factory=lambda: generate_id("chatcmpl-", 29))
     object: Literal["chat.completion", "chat.completion.chunk"]
-    choices: List[Union[ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice]]
+    choices: List[
+        Union[ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice]
+    ]
     created: Optional[int] = Field(default_factory=lambda: int(time.time()))
-    system_fingerprint: Optional[str] = Field(default_factory=lambda: generate_id('fp_', 9))
+    system_fingerprint: Optional[str] = Field(
+        default_factory=lambda: generate_id("fp_", 9)
+    )
     usage: Optional[UsageInfo] = None
 
 
@@ -137,7 +142,7 @@ class ChatCompletionRequest(BaseModel):
 
 class InvalidScoreLogitsProcessor(LogitsProcessor):
     def __call__(
-            self, input_ids: torch.LongTensor, scores: torch.FloatTensor
+        self, input_ids: torch.LongTensor, scores: torch.FloatTensor
     ) -> torch.FloatTensor:
         if torch.isnan(scores).any() or torch.isinf(scores).any():
             scores.zero_()
@@ -145,11 +150,13 @@ class InvalidScoreLogitsProcessor(LogitsProcessor):
         return scores
 
 
-def process_response(output: str, tools: dict | List[dict] = None, use_tool: bool = False) -> Union[str, dict]:
+def process_response(
+    output: str, tools: dict | List[dict] = None, use_tool: bool = False
+) -> Union[str, dict]:
     lines = output.strip().split("\n")
     arguments_json = None
     special_tools = ["cogview", "simple_browser"]
-    tools = {tool['function']['name'] for tool in tools} if tools else {}
+    tools = {tool["function"]["name"] for tool in tools} if tools else {}
 
     # 这是一个简单的工具比较函数，不能保证拦截所有非工具输出的结果，比如参数未对齐等特殊情况。
     ##TODO 如果你希望做更多判断，可以在这里进行逻辑完善。
@@ -167,21 +174,30 @@ def process_response(output: str, tools: dict | List[dict] = None, use_tool: boo
             if is_tool_call and use_tool:
                 content = {
                     "name": function_name,
-                    "arguments": json.dumps(arguments_json if isinstance(arguments_json, dict) else arguments,
-                                            ensure_ascii=False)
+                    "arguments": json.dumps(
+                        arguments_json
+                        if isinstance(arguments_json, dict)
+                        else arguments,
+                        ensure_ascii=False,
+                    ),
                 }
                 if function_name == "simple_browser":
-                    search_pattern = re.compile(r'search\("(.+?)"\s*,\s*recency_days\s*=\s*(\d+)\)')
+                    search_pattern = re.compile(
+                        r'search\("(.+?)"\s*,\s*recency_days\s*=\s*(\d+)\)'
+                    )
                     match = search_pattern.match(arguments)
                     if match:
-                        content["arguments"] = json.dumps({
-                            "query": match.group(1),
-                            "recency_days": int(match.group(2))
-                        }, ensure_ascii=False)
+                        content["arguments"] = json.dumps(
+                            {
+                                "query": match.group(1),
+                                "recency_days": int(match.group(2)),
+                            },
+                            ensure_ascii=False,
+                        )
                 elif function_name == "cogview":
-                    content["arguments"] = json.dumps({
-                        "prompt": arguments
-                    }, ensure_ascii=False)
+                    content["arguments"] = json.dumps(
+                        {"prompt": arguments}, ensure_ascii=False
+                    )
 
                 return content
     return output.strip()
@@ -198,7 +214,9 @@ async def generate_stream_glm4(params):
     max_new_tokens = int(params.get("max_tokens", 8192))
 
     messages = process_messages(messages, tools=tools, tool_choice=tool_choice)
-    inputs = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    inputs = tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True, tokenize=False
+    )
     params_dict = {
         "n": 1,
         "best_of": 1,
@@ -216,7 +234,9 @@ async def generate_stream_glm4(params):
         "skip_special_tokens": True,
     }
     sampling_params = SamplingParams(**params_dict)
-    async for output in engine.generate(prompt=inputs, sampling_params=sampling_params, request_id=f"{time.time()}"):
+    async for output in engine.generate(
+        prompt=inputs, sampling_params=sampling_params, request_id=f"{time.time()}"
+    ):
         output_len = len(output.outputs[0].token_ids)
         input_len = len(output.prompt_token_ids)
         ret = {
@@ -224,7 +244,7 @@ async def generate_stream_glm4(params):
             "usage": {
                 "prompt_tokens": input_len,
                 "completion_tokens": output_len,
-                "total_tokens": output_len + input_len
+                "total_tokens": output_len + input_len,
             },
             "finish_reason": output.outputs[0].finish_reason,
         }
@@ -239,12 +259,13 @@ def process_messages(messages, tools=None, tool_choice="none"):
     msg_has_sys = False
 
     def filter_tools(tool_choice, tools):
-        function_name = tool_choice.get('function', {}).get('name', None)
+        function_name = tool_choice.get("function", {}).get("name", None)
         if not function_name:
             return []
         filtered_tools = [
-            tool for tool in tools
-            if tool.get('function', {}).get('name') == function_name
+            tool
+            for tool in tools
+            if tool.get("function", {}).get("name") == function_name
         ]
         return filtered_tools
 
@@ -253,11 +274,7 @@ def process_messages(messages, tools=None, tool_choice="none"):
             tools = filter_tools(tool_choice, tools)
         if tools:
             processed_messages.append(
-                {
-                    "role": "system",
-                    "content": None,
-                    "tools": tools
-                }
+                {"role": "system", "content": None, "tools": tools}
             )
             msg_has_sys = True
 
@@ -266,28 +283,19 @@ def process_messages(messages, tools=None, tool_choice="none"):
             {
                 "role": "assistant",
                 "metadata": tool_choice["function"]["name"],
-                "content": ""
+                "content": "",
             }
         )
 
     for m in _messages:
         role, content, func_call = m.role, m.content, m.function_call
-        tool_calls = getattr(m, 'tool_calls', None)
+        tool_calls = getattr(m, "tool_calls", None)
 
         if role == "function":
-            processed_messages.append(
-                {
-                    "role": "observation",
-                    "content": content
-                }
-            )
+            processed_messages.append({"role": "observation", "content": content})
         elif role == "tool":
             processed_messages.append(
-                {
-                    "role": "observation",
-                    "content": content,
-                    "function_call": True
-                }
+                {"role": "observation", "content": content, "function_call": True}
             )
         elif role == "assistant":
             if tool_calls:
@@ -296,7 +304,7 @@ def process_messages(messages, tools=None, tool_choice="none"):
                         {
                             "role": "assistant",
                             "metadata": tool_call.function.name,
-                            "content": tool_call.function.arguments
+                            "content": tool_call.function.arguments,
                         }
                     )
             else:
@@ -309,7 +317,7 @@ def process_messages(messages, tools=None, tool_choice="none"):
                         {
                             "role": role,
                             "metadata": metadata,
-                            "content": sub_content.strip()
+                            "content": sub_content.strip(),
                         }
                     )
         else:
@@ -320,7 +328,7 @@ def process_messages(messages, tools=None, tool_choice="none"):
 
     if not tools or tool_choice == "none":
         for m in _messages:
-            if m.role == 'system':
+            if m.role == "system":
                 processed_messages.insert(0, {"role": m.role, "content": m.content})
                 break
     return processed_messages
@@ -360,7 +368,9 @@ async def create_chat_completion(request: ChatCompletionRequest):
         predict_stream_generator = predict_stream(request.model, gen_params)
         output = await anext(predict_stream_generator)
         if output:
-            return EventSourceResponse(predict_stream_generator, media_type="text/event-stream")
+            return EventSourceResponse(
+                predict_stream_generator, media_type="text/event-stream"
+            )
         logger.debug(f"First result output：\n{output}")
 
         function_call = None
@@ -372,10 +382,14 @@ async def create_chat_completion(request: ChatCompletionRequest):
 
         if isinstance(function_call, dict):
             function_call = ChoiceDeltaToolCallFunction(**function_call)
-            generate = parse_output_text(request.model, output, function_call=function_call)
+            generate = parse_output_text(
+                request.model, output, function_call=function_call
+            )
             return EventSourceResponse(generate, media_type="text/event-stream")
         else:
-            return EventSourceResponse(predict_stream_generator, media_type="text/event-stream")
+            return EventSourceResponse(
+                predict_stream_generator, media_type="text/event-stream"
+            )
     response = ""
     async for response in generate_stream_glm4(gen_params):
         pass
@@ -390,21 +404,24 @@ async def create_chat_completion(request: ChatCompletionRequest):
     tool_calls = None
     if request.tools:
         try:
-            function_call = process_response(response["text"], request.tools, use_tool=True)
+            function_call = process_response(
+                response["text"], request.tools, use_tool=True
+            )
         except Exception as e:
             logger.warning(f"Failed to parse tool call: {e}")
     if isinstance(function_call, dict):
         finish_reason = "tool_calls"
         function_call_response = ChoiceDeltaToolCallFunction(**function_call)
         function_call_instance = FunctionCall(
-            name=function_call_response.name,
-            arguments=function_call_response.arguments
+            name=function_call_response.name, arguments=function_call_response.arguments
         )
         tool_calls = [
             ChatCompletionMessageToolCall(
-                id=generate_id('call_', 24),
+                id=generate_id("call_", 24),
                 function=function_call_instance,
-                type="function")]
+                type="function",
+            )
+        ]
 
     message = ChatMessage(
         role="assistant",
@@ -428,7 +445,7 @@ async def create_chat_completion(request: ChatCompletionRequest):
         model=request.model,
         choices=[choice_data],
         object="chat.completion",
-        usage=usage
+        usage=usage,
     )
 
 
@@ -438,13 +455,17 @@ async def predict_stream(model_id, gen_params):
     has_send_first_chunk = False
     created_time = int(time.time())
     function_name = None
-    response_id = generate_id('chatcmpl-', 29)
-    system_fingerprint = generate_id('fp_', 9)
-    tools = {tool['function']['name'] for tool in gen_params['tools']} if gen_params['tools'] else {}
+    response_id = generate_id("chatcmpl-", 29)
+    system_fingerprint = generate_id("fp_", 9)
+    tools = (
+        {tool["function"]["name"] for tool in gen_params["tools"]}
+        if gen_params["tools"]
+        else {}
+    )
     delta_text = ""
     async for new_response in generate_stream_glm4(gen_params):
         decoded_unicode = new_response["text"]
-        delta_text += decoded_unicode[len(output):]
+        delta_text += decoded_unicode[len(output) :]
         output = decoded_unicode
         lines = output.strip().split("\n")
 
@@ -465,20 +486,18 @@ async def predict_stream(model_id, gen_params):
                 function_call = {"name": function_name, "arguments": ""}
                 tool_call = ChatCompletionMessageToolCall(
                     index=0,
-                    id=generate_id('call_', 24),
+                    id=generate_id("call_", 24),
                     function=FunctionCall(**function_call),
-                    type="function"
+                    type="function",
                 )
                 message = DeltaMessage(
                     content=None,
                     role="assistant",
                     function_call=None,
-                    tool_calls=[tool_call]
+                    tool_calls=[tool_call],
                 )
                 choice_data = ChatCompletionResponseStreamChoice(
-                    index=0,
-                    delta=message,
-                    finish_reason=None
+                    index=0, delta=message, finish_reason=None
                 )
                 chunk = ChatCompletionResponse(
                     model=model_id,
@@ -486,7 +505,7 @@ async def predict_stream(model_id, gen_params):
                     choices=[choice_data],
                     created=created_time,
                     system_fingerprint=system_fingerprint,
-                    object="chat.completion.chunk"
+                    object="chat.completion.chunk",
                 )
                 yield ""
                 yield chunk.model_dump_json(exclude_unset=True)
@@ -498,18 +517,13 @@ async def predict_stream(model_id, gen_params):
                 index=0,
                 id=None,
                 function=FunctionCall(**function_call),
-                type="function"
+                type="function",
             )
             message = DeltaMessage(
-                content=None,
-                role=None,
-                function_call=None,
-                tool_calls=[tool_call]
+                content=None, role=None, function_call=None, tool_calls=[tool_call]
             )
             choice_data = ChatCompletionResponseStreamChoice(
-                index=0,
-                delta=message,
-                finish_reason=None
+                index=0, delta=message, finish_reason=None
             )
             chunk = ChatCompletionResponse(
                 model=model_id,
@@ -517,12 +531,14 @@ async def predict_stream(model_id, gen_params):
                 choices=[choice_data],
                 created=created_time,
                 system_fingerprint=system_fingerprint,
-                object="chat.completion.chunk"
+                object="chat.completion.chunk",
             )
             yield chunk.model_dump_json(exclude_unset=True)
 
         # 用户请求了 Function Call 但是框架还没确定是否为Function Call
-        elif (gen_params["tools"] and gen_params["tool_choice"] != "none") or is_function_call:
+        elif (
+            gen_params["tools"] and gen_params["tool_choice"] != "none"
+        ) or is_function_call:
             continue
 
         # 常规返回
@@ -535,9 +551,7 @@ async def predict_stream(model_id, gen_params):
                     function_call=None,
                 )
                 choice_data = ChatCompletionResponseStreamChoice(
-                    index=0,
-                    delta=message,
-                    finish_reason=finish_reason
+                    index=0, delta=message, finish_reason=finish_reason
                 )
                 chunk = ChatCompletionResponse(
                     model=model_id,
@@ -545,7 +559,7 @@ async def predict_stream(model_id, gen_params):
                     choices=[choice_data],
                     created=created_time,
                     system_fingerprint=system_fingerprint,
-                    object="chat.completion.chunk"
+                    object="chat.completion.chunk",
                 )
                 yield chunk.model_dump_json(exclude_unset=True)
                 has_send_first_chunk = True
@@ -557,9 +571,7 @@ async def predict_stream(model_id, gen_params):
             )
             delta_text = ""
             choice_data = ChatCompletionResponseStreamChoice(
-                index=0,
-                delta=message,
-                finish_reason=finish_reason
+                index=0, delta=message, finish_reason=finish_reason
             )
             chunk = ChatCompletionResponse(
                 model=model_id,
@@ -567,7 +579,7 @@ async def predict_stream(model_id, gen_params):
                 choices=[choice_data],
                 created=created_time,
                 system_fingerprint=system_fingerprint,
-                object="chat.completion.chunk"
+                object="chat.completion.chunk",
             )
             yield chunk.model_dump_json(exclude_unset=True)
 
@@ -585,11 +597,12 @@ async def predict_stream(model_id, gen_params):
                         role=None,
                         function_call=None,
                     ),
-                    finish_reason="tool_calls"
-                )],
+                    finish_reason="tool_calls",
+                )
+            ],
             created=created_time,
             object="chat.completion.chunk",
-            usage=None
+            usage=None,
         ).model_dump_json(exclude_unset=True)
     elif delta_text != "":
         message = DeltaMessage(
@@ -598,9 +611,7 @@ async def predict_stream(model_id, gen_params):
             function_call=None,
         )
         choice_data = ChatCompletionResponseStreamChoice(
-            index=0,
-            delta=message,
-            finish_reason=None
+            index=0, delta=message, finish_reason=None
         )
         chunk = ChatCompletionResponse(
             model=model_id,
@@ -608,11 +619,11 @@ async def predict_stream(model_id, gen_params):
             choices=[choice_data],
             created=created_time,
             system_fingerprint=system_fingerprint,
-            object="chat.completion.chunk"
+            object="chat.completion.chunk",
         )
         yield chunk.model_dump_json(exclude_unset=True)
-    
-        finish_reason = 'stop'
+
+        finish_reason = "stop"
         message = DeltaMessage(
             content=delta_text,
             role="assistant",
@@ -620,9 +631,7 @@ async def predict_stream(model_id, gen_params):
         )
         delta_text = ""
         choice_data = ChatCompletionResponseStreamChoice(
-            index=0,
-            delta=message,
-            finish_reason=finish_reason
+            index=0, delta=message, finish_reason=finish_reason
         )
         chunk = ChatCompletionResponse(
             model=model_id,
@@ -630,30 +639,29 @@ async def predict_stream(model_id, gen_params):
             choices=[choice_data],
             created=created_time,
             system_fingerprint=system_fingerprint,
-            object="chat.completion.chunk"
+            object="chat.completion.chunk",
         )
         yield chunk.model_dump_json(exclude_unset=True)
-        yield '[DONE]'
+        yield "[DONE]"
     else:
-        yield '[DONE]'
+        yield "[DONE]"
 
-async def parse_output_text(model_id: str, value: str, function_call: ChoiceDeltaToolCallFunction = None):
+
+async def parse_output_text(
+    model_id: str, value: str, function_call: ChoiceDeltaToolCallFunction = None
+):
     delta = DeltaMessage(role="assistant", content=value)
     if function_call is not None:
         delta.function_call = function_call
 
     choice_data = ChatCompletionResponseStreamChoice(
-        index=0,
-        delta=delta,
-        finish_reason=None
+        index=0, delta=delta, finish_reason=None
     )
     chunk = ChatCompletionResponse(
-        model=model_id,
-        choices=[choice_data],
-        object="chat.completion.chunk"
+        model=model_id, choices=[choice_data], object="chat.completion.chunk"
     )
     yield "{}".format(chunk.model_dump_json(exclude_unset=True))
-    yield '[DONE]'
+    yield "[DONE]"
 
 
 if __name__ == "__main__":
@@ -676,4 +684,4 @@ if __name__ == "__main__":
         max_model_len=MAX_MODEL_LENGTH,
     )
     engine = AsyncLLMEngine.from_engine_args(engine_args)
-    uvicorn.run(app, host='0.0.0.0', port=int(port), workers=1)
+    uvicorn.run(app, host="0.0.0.0", port=int(port), workers=1)

@@ -17,13 +17,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from peft import PeftModelForCausalLM
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
-from transformers import (
-    AutoTokenizer,
-    AutoModel,
-    TextIteratorStreamer
+from transformers import AutoTokenizer, AutoModel, TextIteratorStreamer
+
+TORCH_TYPE = (
+    torch.bfloat16
+    if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+    else torch.float16
 )
 
-TORCH_TYPE = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,6 +54,7 @@ class ModelCard(BaseModel):
     A Pydantic model representing a model card, which provides metadata about a machine learning model.
     It includes fields like model ID, owner, and creation time.
     """
+
     id: str
     object: str = "model"
     created: int = Field(default_factory=lambda: int(time.time()))
@@ -131,7 +133,9 @@ class UsageInfo(BaseModel):
 class ChatCompletionResponse(BaseModel):
     model: str
     object: Literal["chat.completion", "chat.completion.chunk"]
-    choices: List[Union[ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice]]
+    choices: List[
+        Union[ChatCompletionResponseChoice, ChatCompletionResponseStreamChoice]
+    ]
     created: Optional[int] = Field(default_factory=lambda: int(time.time()))
     usage: Optional[UsageInfo] = None
 
@@ -160,14 +164,14 @@ async def create_chat_completion(request: ChatCompletionRequest):
         max_tokens=request.max_tokens or 1024,
         echo=False,
         stream=request.stream,
-        repetition_penalty=request.repetition_penalty
+        repetition_penalty=request.repetition_penalty,
     )
 
     if request.stream:
         generate = predict(request.model, gen_params)
         return EventSourceResponse(generate, media_type="text/event-stream")
     response = generate_glm4v(model, tokenizer, gen_params)
-    
+
     usage = UsageInfo()
 
     message = ChatMessageResponse(
@@ -181,32 +185,41 @@ async def create_chat_completion(request: ChatCompletionRequest):
     task_usage = UsageInfo.model_validate(response["usage"])
     for usage_key, usage_value in task_usage.model_dump().items():
         setattr(usage, usage_key, getattr(usage, usage_key) + usage_value)
-    return ChatCompletionResponse(model=request.model, choices=[choice_data], object="chat.completion", usage=usage)
+    return ChatCompletionResponse(
+        model=request.model,
+        choices=[choice_data],
+        object="chat.completion",
+        usage=usage,
+    )
 
 
 def predict(model_id: str, params: dict):
     global model, tokenizer
 
     choice_data = ChatCompletionResponseStreamChoice(
-        index=0,
-        delta=DeltaMessage(role="assistant"),
-        finish_reason=None
+        index=0, delta=DeltaMessage(role="assistant"), finish_reason=None
     )
-    chunk = ChatCompletionResponse(model=model_id, choices=[choice_data], object="chat.completion.chunk")
+    chunk = ChatCompletionResponse(
+        model=model_id, choices=[choice_data], object="chat.completion.chunk"
+    )
     yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
     previous_text = ""
     for new_response in generate_stream_glm4v(model, tokenizer, params):
         decoded_unicode = new_response["text"]
-        delta_text = decoded_unicode[len(previous_text):]
+        delta_text = decoded_unicode[len(previous_text) :]
         previous_text = decoded_unicode
         delta = DeltaMessage(content=delta_text, role="assistant")
         choice_data = ChatCompletionResponseStreamChoice(index=0, delta=delta)
-        chunk = ChatCompletionResponse(model=model_id, choices=[choice_data], object="chat.completion.chunk")
+        chunk = ChatCompletionResponse(
+            model=model_id, choices=[choice_data], object="chat.completion.chunk"
+        )
         yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
     choice_data = ChatCompletionResponseStreamChoice(index=0, delta=DeltaMessage())
-    chunk = ChatCompletionResponse(model=model_id, choices=[choice_data], object="chat.completion.chunk")
+    chunk = ChatCompletionResponse(
+        model=model_id, choices=[choice_data], object="chat.completion.chunk"
+    )
     yield "{}".format(chunk.model_dump_json(exclude_unset=True))
 
 
@@ -223,8 +236,9 @@ def generate_glm4v(model: AutoModel, tokenizer: AutoTokenizer, params: dict):
     return response
 
 
-def process_history_and_images(messages: List[ChatMessageInput]) -> Tuple[
-    Optional[str], Optional[List[Tuple[str, str]]], Optional[List[Image.Image]]]:
+def process_history_and_images(
+    messages: List[ChatMessageInput],
+) -> Tuple[Optional[str], Optional[List[Tuple[str, str]]], Optional[List[Image.Image]]]:
     """
     Process history messages to extract text, identify the last user query,
     and convert base64 encoded image URLs to PIL images.
@@ -239,14 +253,16 @@ def process_history_and_images(messages: List[ChatMessageInput]) -> Tuple[
 
     formatted_history = []
     image_list = []
-    last_user_query = ''
+    last_user_query = ""
 
     for i, message in enumerate(messages):
         role = message.role
         content = message.content
 
         if isinstance(content, list):  # text
-            text_content = ' '.join(item.text for item in content if isinstance(item, TextContent))
+            text_content = " ".join(
+                item.text for item in content if isinstance(item, TextContent)
+            )
         else:
             text_content = content
 
@@ -255,26 +271,28 @@ def process_history_and_images(messages: List[ChatMessageInput]) -> Tuple[
                 if isinstance(item, ImageUrlContent):
                     image_url = item.image_url.url
                     if image_url.startswith("data:image/jpeg;base64,"):
-                        base64_encoded_image = image_url.split("data:image/jpeg;base64,")[1]
+                        base64_encoded_image = image_url.split(
+                            "data:image/jpeg;base64,"
+                        )[1]
                         image_data = base64.b64decode(base64_encoded_image)
-                        image = Image.open(BytesIO(image_data)).convert('RGB')
+                        image = Image.open(BytesIO(image_data)).convert("RGB")
                     else:
                         response = requests.get(image_url, verify=False)
-                        image = Image.open(BytesIO(response.content)).convert('RGB')
+                        image = Image.open(BytesIO(response.content)).convert("RGB")
                     image_list.append(image)
 
-        if role == 'user':
+        if role == "user":
             if i == len(messages) - 1:  # 最后一条用户消息
                 last_user_query = text_content
             else:
-                formatted_history.append((text_content, ''))
-        elif role == 'assistant':
+                formatted_history.append((text_content, ""))
+        elif role == "assistant":
             if formatted_history:
-                if formatted_history[-1][1] != '':
+                if formatted_history[-1][1] != "":
                     assert False, f"the last query is answered. answer again. {formatted_history[-1][0]}, {formatted_history[-1][1]}, {text_content}"
                 formatted_history[-1] = (formatted_history[-1][0], text_content)
             else:
-                assert False, f"assistant reply before user"
+                assert False, "assistant reply before user"
         else:
             assert False, f"unrecognized role: {role}"
 
@@ -313,15 +331,12 @@ def generate_stream_glm4v(model: AutoModel, tokenizer: AutoTokenizer, params: di
         add_generation_prompt=True,
         tokenize=True,
         return_tensors="pt",
-        return_dict=True
+        return_dict=True,
     ).to(next(model.parameters()).device)
 
     input_echo_len = len(model_inputs["input_ids"][0])
     streamer = TextIteratorStreamer(
-        tokenizer=tokenizer,
-        timeout=60.0,
-        skip_prompt=True,
-        skip_special_tokens=True
+        tokenizer=tokenizer, timeout=60.0, skip_prompt=True, skip_special_tokens=True
     )
     gen_kwargs = {
         "repetition_penalty": repetition_penalty,
@@ -329,7 +344,7 @@ def generate_stream_glm4v(model: AutoModel, tokenizer: AutoTokenizer, params: di
         "do_sample": True if temperature > 1e-5 else False,
         "top_p": top_p if temperature > 1e-5 else 0,
         "top_k": 1,
-        'streamer': streamer,
+        "streamer": streamer,
         "eos_token_id": [151329, 151336, 151338],
     }
     if temperature > 1e-5:
@@ -357,7 +372,7 @@ def generate_stream_glm4v(model: AutoModel, tokenizer: AutoTokenizer, params: di
             },
         }
     generation_thread.join()
-    print('\033[91m--generated_text\033[0m', generated_text)
+    print("\033[91m--generated_text\033[0m", generated_text)
     yield {
         "text": generated_text,
         "usage": {
@@ -375,15 +390,16 @@ if __name__ == "__main__":
     port = sys.argv[2] if len(sys.argv) > 2 else 8000
     MODEL_PATH = sys.argv[1]
     model_dir = Path(MODEL_PATH).expanduser().resolve()
-    if (model_dir / 'adapter_config.json').exists():
+    if (model_dir / "adapter_config.json").exists():
         import json
-        with open(model_dir / 'adapter_config.json', 'r', encoding='utf-8') as file:
+
+        with open(model_dir / "adapter_config.json", "r", encoding="utf-8") as file:
             config = json.load(file)
         model = AutoModel.from_pretrained(
-            config.get('base_model_name_or_path'),
+            config.get("base_model_name_or_path"),
             trust_remote_code=True,
-            device_map='auto',
-            torch_dtype=TORCH_TYPE
+            device_map="auto",
+            torch_dtype=TORCH_TYPE,
         )
         model = PeftModelForCausalLM.from_pretrained(
             model=model,
@@ -391,16 +407,14 @@ if __name__ == "__main__":
             trust_remote_code=True,
         )
         tokenizer = AutoTokenizer.from_pretrained(
-            config.get('base_model_name_or_path'),
+            config.get("base_model_name_or_path"),
             trust_remote_code=True,
-            encode_special_tokens=True
+            encode_special_tokens=True,
         )
         model.eval()
     else:
         tokenizer = AutoTokenizer.from_pretrained(
-            MODEL_PATH,
-            trust_remote_code=True,
-            encode_special_tokens=True
+            MODEL_PATH, trust_remote_code=True, encode_special_tokens=True
         )
         model = AutoModel.from_pretrained(
             MODEL_PATH,
@@ -408,6 +422,5 @@ if __name__ == "__main__":
             trust_remote_code=True,
             device_map="auto",
         ).eval()
-        
 
-    uvicorn.run(app, host='0.0.0.0', port=int(port), workers=1)
+    uvicorn.run(app, host="0.0.0.0", port=int(port), workers=1)
